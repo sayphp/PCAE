@@ -14,6 +14,25 @@
 
 ## 线程安全数据池
 
+在一个扩展的MINIT阶段，扩展使用*ts_allocate_id()*函数通过TSRM层来存储一个或多个调用需要的数据。TSRM将该字节计数添加到其运行的数据空间需求总数，并为该段的线程数据池部分返回一个新的唯一标识符。
+
+```c
+typedef struct{
+    int sampleint;
+  	char *samplestring;
+} php_sample_globals_id;
+PHP_MINIT_FUNCTION(sample)
+{
+    ts_allocate_id(&sample_globals_id,
+                  sizeof(php_sample_globals),
+                  (ts_allocate_ctor) php_sample_globals_ctor,
+                  (ts_allocate_dtor) php_sample_globals_dtor);
+  	return SUCCESS;
+}
+```
+
+当灾情求其减访问该数据段时，该扩展从TSRM层为当前线程的资源池请求一个指针，由*ts_allocate_id()*所返回的资源ID通过适当的索引将该指针进行了偏移。
+
 ## 什么时候不用线程
 
 ## 未知全局访问
