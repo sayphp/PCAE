@@ -74,7 +74,67 @@ PHP_MINIT_FUNCTION(sample)
 
 在创建扩展时，你不一定知道他所构建的环境是否需要线程安全。幸运的是，你将使用的标准include文件有条件的定义了ZTS预处理器令牌。当PHP构建为线程安全性时，由于SAPI需要它，或者通过*--enable-maintainer-zts*选项，该值被自动定义，并且可以使用通常的一组指（如*#ifdef ZTS*）令进行测试。
 
+如前所述，如果线程池实际存在，择在线程安全池中分配控件是有一医德，并且只有在为线程安全编译PHP时，它才会存在。这就是为什么在前面的例子中，它包含在检查*ZTS*中，一个非线程的替代方法被调用于非*ZTS*的构建环境中。
+
+在本章前面看到的*PHP_MINIT_FUNcTION(myextension)*的示例中，*#ifdef ZTS*用于有条件地调用争取版本的全局初始化代码。对于ZTS模式，它使用*ts_allocate_id()*来填充*myextension_globals_id*变量，而non-ZTS模式 直接成为*myextension_globals*的初始化方法。这两个变量将在你的扩展源文件中使用Zend宏命令声明：*DECLARE_MODULE_GLOBALS(extension);*它会根据ZTS是否启用自动处理ZTS测试并声明适当类型的正确主机变量。
+
+当访问者写全局变量的时候，你将使用如前面所示的自定义宏，如SAMPLE_G()。在第12章中，你将虚吸入和设计此宏以根据是否启用ZTS来展开为正确的形式。
+
 ##即使你不需要线程
+
+正常的PHP构建默认情况下是关闭线程安全的，只有当已知构建的SAPI需要线程安全或者有*./configure* 开关明确的打开线程安全设置时，才启用它。
+
+考虑到全局查找的速度问题，以及缺少进程隔离，你可能会想知道为什么任何人在不需要时回顾已将TSRM层打开。在大多数情况下，它是扩展和SAPI开发人员，就像你即将成为——为了确保新代码在所有环境中都能正常运行。
+
+当启用线程安全性时，将一个特殊的指针（称为*tsrm_ls*）添加到许多内部函数的原型中。它是这个指针，允许PHP将与一个线程相关联的数据与另一个线程区分开来。你可能会记得在本章前面的ZTS模式下看到它与*SAMPLE_G()*宏一起使用。没有它，执行函数将不知道要查训的符号表并设置一个对应的值；它甚至不知道哪个脚本被执行，引擎将完全无法跟踪其内部寄存器。着一个指针保持一个线程处理页面请求正在另一个的顶部运行。
+
+指针参数可选的包含在原型中的方式是通过一组定义。当ZTS被禁用时，这些定义将所有求值设置为空白；然而，当他被打开时，它们看起来向下面这样：
+
+```c
+#define TSRMLS_D void ***tsrm_ls
+#define TSRMLS_DC , void ***tsrm_ls
+#define TSRMLS_C tsrm_ls
+#define TSRMLS_CC , tsrm_ls
+```
+
+non-ZTS构建将在下面的代码中看到第一行具有两个参数，即int和char *。另一方面，在zts构建下，原型包含三个参数：int， char *和void ***。当你的程序调用此函数时，它将需要传入该参数，但仅适用于启用了ZTS的构建。一下代码中的第二行显示了CC宏如何完成这一点。
+
+```c
+int php_myext_action(int action_id, char *message TSRMLS_DC);
+php_myext_action(42, "The meaning of life", TSRMLS_CC);
+```
+
+通过在函数调用中包含着个特殊变量，*php_myext_action*将能够使用*tsrm_ls*的值与*MYEXT_G()*宏一起访问其线程特定的全局数据。在non-ZTS构建中，*tsrm_ls*将不可用，但是没关系，因为*MYEXT_G()*和其他类似的宏将不会使用它。
+
+现在想象你正在开发一个新的扩展，你已经有了以下的功能，使用CLI SAPI在你的本地构建下工作的很好，甚至使用Apache1的apxes SAPI。
+
+```c
+static int php_myext_isset(char *varname, int varname_len)
+{
+    zval **dummy;
+  	if(zend_hash_find(EG(active_symbol_table),
+                     varname, varname_len + 1,
+                     (void**)&dummy) == SUCCESS){
+        /* Variable exists */
+      	return 1;
+    }else{
+        /* Undefined variable */
+      	return 0;
+    }
+}
+```
+
+满意就好，你打包你的扩展，并发送到另一个办公室，在生产服务器上建立和运行。令你感到沮丧的是，远程办公室告诉你扩展无法编译。
+
+事实证明，他们在线程模式下使用Apache 2.0，所以他们的PHP版本启用了ZTS。当编译遇到你使用*EG()*宏时，它尝试在本地 范围内找到tsrm_ls，因为你没有声明它，并且从未将它传递给你的函数。
+
+当然这个修复很简单；只需将TSRMLS_DC添加到*php_myext_isset*()的声明中，并将TSRMLS_CC抛出到调用它的每一行上。不幸的是，远程办公室的生产流水线现在已经不再赘述，因此希望推出几个星期的时间。如果只是这个问题可能早已被抓住了！
+
+这就是 --enable-maintainer-zts。在构建PHP时，通过将这一行添加到*./configure*语句中，即使你当前的sapi（如cli）不需要，你的够将也将自动包含ZTS。启用次开关，可以避免这种常见且不必要的编程错误。
+
+> **注意**
+>
+> 在PHP4中， --enable-maintainer-zts标志被写做--enable-experimental-zts；在编译你的PHP的时候，一定要针对版本使用正确的标志。
 
 ## 找寻迷失的tsrm_ls
 
