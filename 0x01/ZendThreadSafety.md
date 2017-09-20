@@ -138,3 +138,43 @@ static int php_myext_isset(char *varname, int varname_len)
 
 ## 找寻迷失的tsrm_ls
 
+有些时候，不可能将tsrm_ls指针传递到需要它的函数中。这通常是因为你的扩展是使用某个库的接口，并且不给要返回的抽象指针提供控件。可以参考下面的代码：
+
+```c
+void php_myext_event_callback(int eventtype, char *message)
+{
+    zval *event;
+  	/* $event = array('event' => $eventtype, 'message' => $message); */
+  	MAKE_STD_ZVAL(event);
+  	array_init(event);
+  	add_assoc_long(event, "type", eventtype);
+  	add_assoc_string(event, "message", message, 1);
+  	/* $eventlog[] = $event; */
+  	add_next_index_zval(EXT_G(eventlog), event);
+}
+PHP_FUNCTION(myext_startloop)
+{
+    /* Theeventlib_loopme() function,
+     * exported by an external library,
+     * waits for an event to happen,
+     * then disatches it to the
+     * callback handler specified.
+     */
+  	eventlib_llome(php_myext_event_callback);
+}
+```
+
+尽管不是所有这些代码段都有意义，但是你马上会注意到回调函数使用*EXT_G()*宏，该宏已知需要在线程构建下的tsrm_ls指针。改变函数原型将不会很好，因为外部库没有PHP的线程安全模型的概念（也不应该有）。那么tsrm_ls怎么能以这样的方式被恢复呢？
+
+这个解决方案采用名为*TSRMLS_FETCH()*的Zend宏的形式。当放置在代码段的顶部时，该宏将基于当前的线程上下文执行查找，并声明tsrm_ls指针的本地副本。
+
+尽管在任何地方使用这个宏都是很诱人的，并且不用大绕通过函数调用传递tsrm_ls，但中要的是要注意，*TSRMLS_FETCH()*调用需要相当多的处理时间才能完成。当然，在弹磁碟袋中不可察觉，但是你的线程技术部端增加，并且你调用*TSRMLS_FETCH()*的实例数量增长，你的扩展将逐渐开始显示此瓶颈。一定要谨慎使用。
+
+> **注意：**
+>
+> 为了确保与C++编译器的兼容性，请确保在任何与据之前，将*TSRMLS_FETCH()*和该事项的所有变量声明放在给定块范围的顶部。因为*TSRMLS_FETCH()*宏本身可以通过集中不同的方式解决，最好使它成为在给定声明中声明的最后一个变量。
+
+
+
+
+
