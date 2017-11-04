@@ -68,3 +68,59 @@ void call_function(const char *fname, int fname_len TSRMLS_DC)
 ![Zend内存管理器替换每个请求分配的系统调用图](../img/0x03/1.png)
 
 除了提供隐式内存清理之外，ZendMM还可以根据php.ini设置——memory_limit来控制每个请求的内存使用。如果一个脚本尝试要求整个系统可用的内存或者超过每个请求限制的内存，ZendMM将自动哦你发出一个E_ERROR消息并开始缓存过程。另外一个好处是大多数内存调用的返回值不需要检查，因为失败会导致引擎关闭直接执行longjmp()。
+
+在PHP内部代码和操作系统的实际内存管理层之间挂起自己的内容完全不需要使用另外一组功能来请求内部分配的所有内存。例如，使用malloc(16)而不是分配十六字节的内存块，PHP代码将使用emalloc(16)。除了执行实际的内存分配任务外，ZendMM还会将该块标记为关于它所绑定的请求的信息，以便当请求缓冲时，ZendMM可以隐式释放它。
+
+通常，内存需要分配长于单个请求的持续时间。可以使用传统的内存分配器执行这些类型的分配，称为持久分配，因为他们吃虚到请求结束之后，因为这些分配不会添加ZendMM使用的附加的每个请求信息。
+
+然而有时候，知道运行时才知道特定的分配是否需要持久化，所以ZendMM会导出一组辅助宏，其作用与其他内存分配函数一样，但是最后哈有一个额外的参数来指示持久性。
+
+如果你真的想要一个永久分配，这个参数应该设置为1,在这种情况下，请求将被传递给传统malloc()系列的分配器。如果运行时逻辑确定该块不需要持久化，则该参数可以设置为0,并且改掉用将被引导到每个请求的内存分配器功能。例如，pemalloc(buffer_len, 1)映射到malloc(buffer_len)，而pemalloc(buffer_len, 0)映射到emalloc(buffer_len)，使用#define如下（ Zend/zend_alloc.h）：
+
+```c
+#define pemalloc(size, persistent) \
+	((persistent)?malloc(size):emalloc(size))
+```
+
+在ZendMM中找到的每个分配器功能都可以在下面找到，它们是比较传统的应对方式。表3.1显示了ZendMM及其e/pe对应支持的每个分配器功能：
+
+| 分配器方法                                   | e/pe对应                                   |
+| --------------------------------------- | ---------------------------------------- |
+| void *malloc(size_t count);             | void *emalloc(size_t count);<br />void *pemalloc(size_t count, char persistent); |
+| void *calloc(size_t count);             | void *ecalloc(size_t count);<br />void *pecalloc(size_t count, char persistent); |
+| void *realloc(void *ptr, size_t count); | void *erealloc(void *ptr, size_t count);<br />void *perealloc(void *ptr, size_t count, char persistent); |
+| void *strdup(void *ptr);                | void *estrdup(void *ptr);<br />void *pestrdup(void *ptr, char persistent); |
+| void free(void *ptr);                   | void efree(void *ptr);<br />void pefree(void *ptr, char persistent); |
+
+你会注意到，pefree()需要持久性标志。这是一网内在调用pefree()时，实际并不知道ptr是否是持久性分配。在非持久性分配上调用free()可能会导致一个凌乱的双倍空闲，而持久的调用efree()很可能导致分段错误，因为内存管理器尝试查找不存在的管理信息。你的代码预计会记住其分配的数据结构是否持久。
+
+除了核心的分配器功能之外，还有一些额外的和相当方便的ZendMM具体功能：
+
+```c
+void *estrndup(void *ptr, int len);
+```
+
+分配len+1个字节的内容，并将len个字节从ptr复制到新分配的块。estrndup()的行为大致如下：
+
+```c
+void *estrndup(void *ptr, int len)
+{
+  char *dst = emalloc(len+1);
+  memcpy(dst, ptr, len);
+  dst[len] = 0;
+  return dst;
+}
+```
+
+隐式放置在缓冲区末尾的终止NULL字节可以确保使用estrndup()进行字符串复制的任何函数不需要担心将生成的缓冲区传递给期望NULL终止字符串（如printf()）的函数。当使用estrndup()来复制非字符串数据时，这个最后一个字节基本上是浪费的，但是通常情况下，方便性远远小于次要的低效率。
+
+```c
+void *safe_emalloc(size_t size, size_t count, size_t addtl);
+void *safe_pemalloc(size_t size, size_t count, size_t addtl, char persistent);
+```
+
+这些函数分配的内存量是((size *count) + addtl)的结果。你可能会问：“为什么要使用额外的函数？为什么不使用emalloc/pemalloc并自己做数学呢？”原因就在于——安全。虽然导致这种情况极难发生，但这种方程的最终结果可能会溢出主机平台的整数限制。这可能会导致负数字节的分配，或者更糟糕的是，正数比调用程序要小得多。safe_emalloc()通过检查整数溢出来避免这种类型的陷阱，并且如果发生这样的溢出则显示失败。
+
+> **注意**
+>
+> 不是所有的内存分配例程都有一个p*对应。例如，没有pestrndup()，safe_pemalloc（）在PHP5.1之前不存在。偶尔你需要解决ZendAPI中的这些缺失。
