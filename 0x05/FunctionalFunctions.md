@@ -50,3 +50,32 @@ $ php -r 'sample_hello_world();'
 添加使用PHP_NAMED_FUNCTION()声明的实现时，将使用PHP_NAMED_FE()宏将其链接到function_entry向量中。所以，如果你声明你的函数为PHP_NAMED_FUNCTION(purplefunc)，你可以使用PHP_NAMED_FE(sample_hello_world, purplefunc, NULL)，而不是使用PHP_FE(sample_hello_world, NULL)。
 
 这种做法可以在ext/standard/file.c中看到，其中fopen()函数实际上是用PHP_NAMED_FUNCTION(php_if_fopen)声明的。就用户空间而言，通常没有什么功能。它仍然被称为fopen()。但是，在内部函数不受预处理器宏和过度编译器的影响。
+
+## 函数别名
+
+一些功能可以被多个名称引用。回想一下，普通函数在内部被声明为前缀为zif_的函数的用户空间名称，很容易看出PHP_NAMED_FE()宏可以用来创建这个代替映射：
+
+```c
+PHP_FE(sample_hello_world, NULL)
+PHP_NAMED_FE(sample_hi, zif_sample_hello_world, NULL)
+```
+
+PHP_FE()宏将用户空间函数名称sample_hello_world与PHP_FUNCTION(sample_hello_world)的扩展zif_sample_hello_world相关联。PHP_NAMED_FE()宏然后将用户空间函数名称sample_hi与这个相同的内部实现关联起来。
+
+现在假设，由于Zend引擎的一个重大变化，neiuhanshu的标准前缀从zif\_变为pif\_。你的扩展会突然停止编译，因为当PHP_NAMED_FE()函数已经到达，zif_sample_hello_world是未定义的。
+
+这种不寻常但麻烦的情况可以通过使用PHP_FNAME()宏来为你展开sample_hello_world来避免：
+
+```c
+PHP_NAMED_FE(sample_hi, PHP_FNAME(sample_hello_world), NULL)
+```
+
+这样，如果函数前缀发生了变化，函数条目将使用PHP Core中定义的宏扩展自动更新。
+
+仙子你已经有了这个入口，猜猜看是什么？这不是必需的。PHP导出另一个专门为创建函数别名而设计的宏。前面的例子可以重写为：
+
+```c
+PHP_FALIAS(sample_hi, sample_hello_world, NULL)
+```
+
+事实上，这是创建函数别名的官方方式，以及如何在PHP源代码树中的其他地方看到它。
