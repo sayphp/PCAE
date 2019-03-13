@@ -1,12 +1,14 @@
-Travis-CI（Continuous Integration）是一款提供持续持续集成服务的工具，用以提高软件开发效率，构建和测试的自动化，PHP目前就支持travis-ci。
+> Travis-CI（Continuous Integration）是一款提供持续持续集成服务的工具，用以提高软件开发效率，构建和测试的自动化，PHP目前就支持[travis-ci][2]。
 
 #### 简介
 
 使用travis-ci需要具备一个github账号、以及托管项目的所有权。
 
-travis-ci支持包括Linux、macOS、Windows三种虚拟环境的构建，默认使用Linux的ubuntu，详细参考资料[4]。
+travis-ci支持包括Linux、macOS、Windows三种虚拟环境的构建，默认使用Linux的ubuntu，详情参见:[Travis-CI构建环境][4]。
 
 如果要自定义配置，细节很多，要大量翻阅文档，而如果只是使用默认配置，使用起来那是相当简单。
+
+中文的简单了解，可以看下[阮大师的中文教程][1]；有兴趣的可以看下[官方文档][3]和[常见问题][5]。
 
 #### 使用
 
