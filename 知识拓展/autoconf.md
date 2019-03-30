@@ -10,10 +10,6 @@ git clone http://git.sv.gnu.org/r/autoconf.git
 sudo apt install autoconf
 ```
 
-#### 简介
-
-autoconf
-
 #### 使用
 
 简单使用：
